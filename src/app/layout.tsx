@@ -10,12 +10,7 @@ export const metadata: Metadata = {
 	title: "Image Editor - Powered by Stability AI",
 	description: "A powerful image editor using Stability AI's API",
 	icons: {
-		icon: [
-			{
-				url: "/icon.png",
-				href: "/icon.png",
-			},
-		],
+		icon: "/favicon.ico",
 	},
 };
 
