@@ -8,6 +8,7 @@ import { ImageViewer } from "@/components/image-viewer";
 import { EditFeatures } from "@/components/edit-features";
 import { useToast } from "@/components/ui/use-toast";
 import { useImageStore } from "@/store/image-store";
+import { TrashIcon } from "lucide-react";
 
 export function ImageEditor() {
 	const { data: session } = useSession();
@@ -95,20 +96,52 @@ export function ImageEditor() {
 		}
 	};
 
+	const handleRemoveImage = () => {
+		setImage(""); // Clear the uploaded image
+		setEditedImage(""); // Clear the edited image if needed
+	};
+
+	const handleRemoveEditedImage = () => {
+		setEditedImage(""); // Clear the edited image if needed
+	};
+
 	// console.log(editedImage);
 
 	return (
 		<div className="grid gap-6 lg:grid-cols-2">
 			<div className="space-y-4">
 				<ImageUploader onUpload={handleImageUpload} isLoading={isLoading} />
-				{image && <ImageViewer src={image} />}
+				{image && (
+					<div className="relative">
+						<div className="absolute top-0 right-0 z-10">
+							<button
+								onClick={handleRemoveImage}
+								type="button"
+								className="p-2 rounded-full bg-red-600 bg-opacity-75 text-white hover:bg-red-700"
+							>
+								<TrashIcon />
+							</button>
+						</div>
+						<ImageViewer src={image} />
+					</div>
+				)}
 			</div>
 			<div className="space-y-4">
 				<EditFeatures isLoading={isLoading} setIsLoading={setIsLoading} />
 				{editedImage && (
-					<div className="space-y-4">
+					<div className="space-y-4 relative">
+						<div className="absolute top-0 right-0 z-10">
+							<button
+								onClick={handleRemoveEditedImage}
+								type="button"
+								className="p-2 rounded-full bg-red-600 bg-opacity-75 text-white hover:bg-red-700"
+							>
+								<TrashIcon />
+							</button>
+						</div>
 						<ImageViewer src={editedImage} />
-						<div className="flex justify-end">
+
+						<div className="flex justify-center">
 							<Button onClick={handleSaveImage} disabled={isLoading}>
 								Save Image
 							</Button>
