@@ -1,6 +1,7 @@
-import { NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import type { NextApiRequest, NextApiResponse } from "next/types";
 
 export async function POST(req: Request) {
 	try {
@@ -55,5 +56,34 @@ export async function GET(req: Request) {
 	} catch (error) {
 		console.error("[IMAGES_GET]", error);
 		return new NextResponse("Internal Error", { status: 500 });
+	}
+}
+
+export async function DELETE(req: NextRequest) {
+	try {
+		const { id } = await req.json(); // Use req.json() to parse the body
+		if (!id) {
+			return NextResponse.json({ message: "ID is required" }, { status: 400 });
+		}
+
+		const deletedImage = await db.image.delete({
+			where: { id: String(id) },
+		});
+
+		if (!deletedImage) {
+			return NextResponse.json({ message: "Image not found" }, { status: 404 });
+		}
+
+		// Correctly return status 204 (No Content) with no body
+		return new NextResponse(null, { status: 204 }); // No content
+	} catch (error) {
+		console.error("Error deleting image:", error);
+		return NextResponse.json(
+			{
+				message: "Failed to remove image from database",
+				error: (error as Error).message,
+			},
+			{ status: 500 },
+		);
 	}
 }
