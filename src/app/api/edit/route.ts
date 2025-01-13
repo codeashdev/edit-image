@@ -1,14 +1,13 @@
 import { NextResponse } from "next/server";
+import axios from "axios";
 import FormData from "form-data";
 
 async function getImageBuffer(url: string): Promise<Buffer> {
 	try {
-		const response = await fetch(url);
-		if (!response.ok) {
-			throw new Error(`Failed to fetch image: ${response.statusText}`);
-		}
-		const arrayBuffer = await response.arrayBuffer();
-		return Buffer.from(arrayBuffer);
+		const response = await axios.get(url, {
+			responseType: "arraybuffer",
+		});
+		return Buffer.from(response.data);
 	} catch (error) {
 		console.error("Error in getImageBuffer:", error);
 		throw new Error("Failed to process image URL");
@@ -18,9 +17,23 @@ async function getImageBuffer(url: string): Promise<Buffer> {
 export async function POST(req: Request) {
 	try {
 		const body = await req.json();
-		const { action, imageUrl, prompt } = body;
+		const {
+			action,
+			imageUrl,
+			prompt,
+			searchPrompt,
+			selectPrompt,
+			backgroundPrompt,
+		} = body;
 
-		// Validate inputs
+		console.log("Received request:", {
+			action,
+			prompt,
+			searchPrompt,
+			selectPrompt,
+			backgroundPrompt,
+		});
+
 		if (!imageUrl || !action) {
 			return NextResponse.json(
 				{ error: "Image URL and action are required" },
@@ -28,83 +41,105 @@ export async function POST(req: Request) {
 			);
 		}
 
-		// Supported actions
-		const validActions = [
-			"remove-background",
-			"search-and-replace",
-			"search-and-recolor",
-			"replace-background-and-relight",
-		];
-
-		if (!validActions.includes(action)) {
+		// Validate required parameters for specific actions
+		if (action === "search-and-replace" && (!prompt || !searchPrompt)) {
 			return NextResponse.json(
 				{
-					error: `Unsupported action. Supported actions are: ${validActions.join(", ")}`,
+					error:
+						"Both prompt and searchPrompt are required for search-and-replace",
 				},
 				{ status: 400 },
 			);
 		}
 
-		// Fetch the image buffer
-		const imageBuffer = await getImageBuffer(imageUrl);
+		if (action === "search-and-recolor" && (!prompt || !selectPrompt)) {
+			return NextResponse.json(
+				{
+					error:
+						"Both prompt and selectPrompt are required for search-and-recolor",
+				},
+				{ status: 400 },
+			);
+		}
 
-		// Construct the FormData payload
+		const imageBuffer = await getImageBuffer(imageUrl);
 		const formData = new FormData();
-		if (action === "replace-background-and-relight") {
-			formData.append("subject_image", imageBuffer, {
-				filename: "subject.png",
-			});
-			formData.append("background_prompt", prompt || "default background");
-		} else {
-			formData.append("image", imageBuffer, { filename: "image.png" });
-			formData.append("prompt", prompt || "");
+
+		// Configure payload based on action
+		switch (action) {
+			case "replace-background-and-relight":
+				formData.append("subject_image", imageBuffer, {
+					filename: "image.png",
+				});
+				formData.append("background_prompt", backgroundPrompt || prompt || "");
+				break;
+
+			case "search-and-replace":
+				formData.append("image", imageBuffer, { filename: "image.png" });
+				formData.append("prompt", prompt);
+				formData.append("search_prompt", searchPrompt);
+				break;
+
+			case "search-and-recolor":
+				formData.append("image", imageBuffer, { filename: "image.png" });
+				formData.append("prompt", prompt);
+				formData.append("select_prompt", selectPrompt);
+				break;
+
+			case "remove-background":
+				formData.append("image", imageBuffer, { filename: "image.png" });
+				break;
 		}
 
 		formData.append("output_format", "webp");
 
-		// Stability AI endpoint
-		const endpoint = `https://api.stability.ai/v2beta/stable-image/edit/${action}`;
-		const headers: HeadersInit = {
-			Authorization: `Bearer ${process.env.STABILITY_API_KEY}`,
-		};
-
-		// Set Accept header for image-based responses
-		if (action !== "replace-background-and-relight") {
-			headers.Accept = "image/*";
-		}
-
-		// Send the request to Stability AI
-		const response = await fetch(endpoint, {
-			method: "POST",
-			headers,
-			// biome-ignore lint/suspicious/noExplicitAny: <explanation>
-			body: formData as any, // Type assertion here
+		console.log("Sending request to Stability AI with params:", {
+			action,
+			hasImage: !!imageBuffer,
+			prompt,
+			searchPrompt,
+			selectPrompt,
+			backgroundPrompt,
 		});
 
-		// Handle non-OK responses
-		if (!response.ok) {
-			const errorData = await response.json().catch(() => null);
-			console.error("API Error Response:", errorData);
+		const endpoint = `https://api.stability.ai/v2beta/stable-image/edit/${action}`;
+
+		const response = await axios.postForm(endpoint, formData, {
+			validateStatus: undefined,
+			responseType: "arraybuffer",
+			headers: {
+				Authorization: `Bearer ${process.env.STABILITY_API_KEY}`,
+				...(action !== "replace-background-and-relight" && {
+					Accept: "image/*",
+				}),
+				"Content-Type": "multipart/form-data",
+			},
+		});
+
+		if (response.status !== 200) {
+			let errorMessage: string;
+			try {
+				// Try to parse error message from arraybuffer
+				errorMessage = Buffer.from(response.data).toString();
+			} catch (e) {
+				errorMessage = "Failed to edit image";
+			}
+			console.error(`API Error: ${response.status}`, errorMessage);
 			return NextResponse.json(
-				{ error: errorData?.message || "Failed to edit image" },
+				{ error: errorMessage },
 				{ status: response.status },
 			);
 		}
 
-		// Handle successful responses for background-and-relight action
 		if (action === "replace-background-and-relight") {
-			const responseData = await response.json();
-			return NextResponse.json({ generationId: responseData.id });
+			return NextResponse.json({ generationId: response.data.id });
 		}
 
-		// Handle image response
-		const imageData = await response.arrayBuffer();
-		const base64Image = Buffer.from(imageData).toString("base64");
+		const base64Image = Buffer.from(response.data).toString("base64");
 		return NextResponse.json({
 			image: `data:image/webp;base64,${base64Image}`,
 		});
 	} catch (error) {
-		// Handle unexpected errors
 		console.error("Edit error:", error);
 		return NextResponse.json(
 			{

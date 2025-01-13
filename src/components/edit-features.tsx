@@ -1,8 +1,16 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/use-toast";
 import { useImageStore } from "@/store/image-store";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select";
+import axios from "axios";
 import type { MouseEvent } from "react";
 
 interface EditFeaturesProps {
@@ -16,17 +24,35 @@ type EditActionApi =
 	| "remove-background"
 	| "replace-background-and-relight";
 
+const ACTION_LABELS: Record<EditActionApi, string> = {
+	"search-and-replace": "Search and Replace",
+	"search-and-recolor": "Search and Recolor",
+	"remove-background": "Remove Background",
+	"replace-background-and-relight": "Replace Background & Relight",
+};
+
 export function EditFeatures({ isLoading, setIsLoading }: EditFeaturesProps) {
 	const { toast } = useToast();
 	const { image, setEditedImage } = useImageStore();
-	const [prompt, setPrompt] = useState("");
-	const [searchPrompt, setSearchPrompt] = useState(""); // For search-and-replace
-	const [selectPrompt, setSelectPrompt] = useState(""); // For search-and-recolor
 	const [currentAction, setCurrentAction] = useState<EditActionApi | null>(
 		null,
 	);
+	const [prompt, setPrompt] = useState("");
+	const [searchPrompt, setSearchPrompt] = useState("");
+	const [selectPrompt, setSelectPrompt] = useState("");
 
-	const handleEdit = async (action: EditActionApi) => {
+	// Reset inputs when action changes
+	// biome-ignore lint/correctness/useExhaustiveDependencies: <explanation>
+	useEffect(() => {
+		setPrompt("");
+		setSearchPrompt("");
+		setSelectPrompt("");
+	}, [currentAction]);
+
+	const handleEdit = async (e: MouseEvent<HTMLButtonElement>) => {
+		e.preventDefault();
+		if (!currentAction) return;
+
 		if (!image) {
 			toast({
 				title: "No image selected",
@@ -36,183 +62,171 @@ export function EditFeatures({ isLoading, setIsLoading }: EditFeaturesProps) {
 			return;
 		}
 
+		// Validate required inputs
+		if (currentAction === "search-and-replace" && (!prompt || !searchPrompt)) {
+			toast({
+				title: "Missing input",
+				description:
+					"Please enter both what to search for and what to replace it with.",
+				variant: "destructive",
+			});
+			return;
+		}
+
+		if (currentAction === "search-and-recolor" && (!prompt || !selectPrompt)) {
+			toast({
+				title: "Missing input",
+				description:
+					"Please enter both what to recolor and the new color/style.",
+				variant: "destructive",
+			});
+			return;
+		}
+
 		try {
 			setIsLoading(true);
-			setCurrentAction(action);
 
 			const requestBody = {
 				imageUrl: image,
-				action,
-				...getActionSpecificParams(action),
+				action: currentAction,
+				prompt,
+				searchPrompt,
+				selectPrompt,
+				backgroundPrompt:
+					currentAction === "replace-background-and-relight"
+						? prompt
+						: undefined,
 			};
 
-			console.log("Sending edit request:", requestBody);
-			const response = await fetch("/api/edit", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-				},
-				body: JSON.stringify(requestBody),
-			});
+			const response = await axios.post("/api/edit", requestBody);
 
-			console.log("Response status:", response.status);
-			const data = await response.json();
-			console.log("Response data:", data);
+			if (currentAction === "replace-background-and-relight") {
+				toast({
+					title: "Success",
+					description: `Generation ID: ${response.data.generationId}`,
+				});
+			} else {
+				if (!response.data.image) {
+					throw new Error("No image data received from server");
+				}
 
-			if (!response.ok) {
-				throw new Error(data.error || "Failed to edit image");
+				setEditedImage(response.data.image);
+				toast({
+					title: "Success",
+					description: "Image edited successfully!",
+				});
 			}
 
-			if (!data.image) {
-				throw new Error("No image data received from API");
-			}
-
-			setEditedImage(data.image);
-			toast({
-				title: "Success",
-				description: "Image edited successfully!",
-			});
-			// Optionally clear inputs after success
-			clearInputs();
+			// Reset after success
+			setCurrentAction(null);
+			setPrompt("");
+			setSearchPrompt("");
+			setSelectPrompt("");
 		} catch (error) {
 			console.error("Edit error:", error);
+			let errorMessage = "Failed to edit image. Please try again.";
+			if (axios.isAxiosError(error)) {
+				errorMessage = error.response?.data?.error || errorMessage;
+			}
 			toast({
 				title: "Error",
-				description:
-					error instanceof Error
-						? error.message
-						: "Failed to edit image. Please try again.",
+				description: errorMessage,
 				variant: "destructive",
 			});
 		} finally {
 			setIsLoading(false);
-			setCurrentAction(null);
 		}
 	};
 
-	const clearInputs = () => {
-		setPrompt("");
-		setSearchPrompt("");
-		setSelectPrompt("");
-	};
+	const renderInputs = () => {
+		if (!currentAction) return null;
 
-	const getActionSpecificParams = (action: EditActionApi) => {
-		switch (action) {
-			case "search-and-replace":
-				return {
-					prompt,
-					searchPrompt: searchPrompt || "object", // Default if not specified
-				};
-			case "search-and-recolor":
-				return {
-					prompt,
-					selectPrompt: selectPrompt || "object", // Default if not specified
-				};
-			case "replace-background-and-relight":
-				return {
-					backgroundPrompt: prompt,
-				};
-			case "remove-background":
-				return {};
-			default:
-				return {};
-		}
-	};
-
-	const handleButtonClick =
-		(action: EditActionApi) => (e: MouseEvent<HTMLButtonElement>) => {
-			e.preventDefault();
-			handleEdit(action);
-		};
-
-	const getButtonText = (action: EditActionApi, defaultText: string) => {
-		if (isLoading && currentAction === action) {
-			return "Processing...";
-		}
-		return defaultText;
-	};
-
-	const getPromptPlaceholder = () => {
-		switch (currentAction) {
-			case "search-and-replace":
-				return "Enter what to replace with...";
-			case "search-and-recolor":
-				return "Enter new color/style...";
-			case "replace-background-and-relight":
-				return "Enter background description...";
-			default:
-				return "Enter your edit prompt...";
-		}
+		return (
+			<div className="space-y-4">
+				{currentAction === "remove-background" ? (
+					<p className="text-sm text-muted-foreground">
+						Click the button below to remove the background from your image.
+					</p>
+				) : (
+					<div className="space-y-2">
+						{currentAction === "search-and-replace" && (
+							<Input
+								type="text"
+								placeholder="What to search for (e.g., 'dog', 'car')..."
+								value={searchPrompt}
+								onChange={(e) => setSearchPrompt(e.target.value)}
+								disabled={isLoading}
+							/>
+						)}
+						{currentAction === "search-and-recolor" && (
+							<Input
+								type="text"
+								placeholder="What to recolor (e.g., 'car', 'shirt')..."
+								value={selectPrompt}
+								onChange={(e) => setSelectPrompt(e.target.value)}
+								disabled={isLoading}
+							/>
+						)}
+						<Input
+							type="text"
+							placeholder={
+								currentAction === "search-and-replace"
+									? "Enter what to replace with..."
+									: currentAction === "search-and-recolor"
+										? "Enter new color/style..."
+										: "Enter background description..."
+							}
+							value={prompt}
+							onChange={(e) => setPrompt(e.target.value)}
+							disabled={isLoading}
+						/>
+					</div>
+				)}
+				<Button
+					className="w-full"
+					onClick={handleEdit}
+					disabled={
+						isLoading ||
+						(currentAction === "search-and-replace" &&
+							(!prompt || !searchPrompt)) ||
+						(currentAction === "search-and-recolor" &&
+							(!prompt || !selectPrompt)) ||
+						(currentAction === "replace-background-and-relight" && !prompt)
+					}
+				>
+					{isLoading
+						? "Processing..."
+						: `Apply ${ACTION_LABELS[currentAction]}`}
+				</Button>
+			</div>
+		);
 	};
 
 	return (
 		<div className="space-y-4">
-			<div className="space-y-2">
-				{/* Prompt input */}
-				<Input
-					type="text"
-					placeholder={getPromptPlaceholder()}
-					value={prompt}
-					onChange={(e) => setPrompt(e.target.value)}
-					disabled={isLoading}
-				/>
-				{currentAction === "search-and-replace" && (
-					<Input
-						type="text"
-						placeholder="What to search for (e.g., 'dog', 'car')..."
-						value={searchPrompt}
-						onChange={(e) => setSearchPrompt(e.target.value)}
-						disabled={isLoading}
+			<Select
+				onValueChange={(value: EditActionApi) => setCurrentAction(value)}
+				value={currentAction || undefined}
+				disabled={!image} // Add this line to disable when there's no image
+			>
+				<SelectTrigger>
+					<SelectValue
+						placeholder={
+							!image
+								? "Upload an image first..."
+								: "Select an action to perform..."
+						}
 					/>
-				)}
-				{currentAction === "search-and-recolor" && (
-					<Input
-						type="text"
-						placeholder="What to recolor (e.g., 'car', 'shirt')..."
-						value={selectPrompt}
-						onChange={(e) => setSelectPrompt(e.target.value)}
-						disabled={isLoading}
-					/>
-				)}
-			</div>
-			<div className="grid grid-cols-2 gap-2">
-				{/* Buttons */}
-				<Button
-					variant="outline"
-					onClick={handleButtonClick("search-and-replace")}
-					disabled={isLoading || !prompt}
-					className="w-full"
-				>
-					{getButtonText("search-and-replace", "Search & Replace")}
-				</Button>
-				<Button
-					variant="outline"
-					onClick={handleButtonClick("search-and-recolor")}
-					disabled={isLoading || !prompt}
-					className="w-full"
-				>
-					{getButtonText("search-and-recolor", "Search & Recolor")}
-				</Button>
-				<Button
-					variant="outline"
-					onClick={handleButtonClick("remove-background")}
-					disabled={isLoading}
-					className="w-full"
-				>
-					{getButtonText("remove-background", "Remove Background")}
-				</Button>
-				<Button
-					variant="outline"
-					onClick={handleButtonClick("replace-background-and-relight")}
-					disabled={isLoading || !prompt}
-					className="w-full"
-				>
-					{getButtonText(
-						"replace-background-and-relight",
-						"Replace Background & Relight",
-					)}
-				</Button>
-			</div>
+				</SelectTrigger>
+				<SelectContent>
+					{Object.entries(ACTION_LABELS).map(([value, label]) => (
+						<SelectItem key={value} value={value}>
+							{label}
+						</SelectItem>
+					))}
+				</SelectContent>
+			</Select>
+			{renderInputs()}
 		</div>
 	);
 }
