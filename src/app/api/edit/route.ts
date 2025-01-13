@@ -65,31 +65,38 @@ export async function POST(req: Request) {
 		const imageBuffer = await getImageBuffer(imageUrl);
 		const formData = new FormData();
 
-		// Configure payload based on action
-		switch (action) {
-			case "replace-background-and-relight":
+		// Configure payload based on action using object literal
+		const actionHandlers: Record<string, () => void> = {
+			"replace-background-and-relight": () => {
 				formData.append("subject_image", imageBuffer, {
 					filename: "image.png",
 				});
 				formData.append("background_prompt", backgroundPrompt || prompt || "");
-				break;
-
-			case "search-and-replace":
+			},
+			"search-and-replace": () => {
 				formData.append("image", imageBuffer, { filename: "image.png" });
 				formData.append("prompt", prompt);
 				formData.append("search_prompt", searchPrompt);
-				break;
-
-			case "search-and-recolor":
+			},
+			"search-and-recolor": () => {
 				formData.append("image", imageBuffer, { filename: "image.png" });
 				formData.append("prompt", prompt);
 				formData.append("select_prompt", selectPrompt);
-				break;
-
-			case "remove-background":
+			},
+			"remove-background": () => {
 				formData.append("image", imageBuffer, { filename: "image.png" });
-				break;
+			},
+		};
+
+		const handleAction = actionHandlers[action];
+		if (!handleAction) {
+			return NextResponse.json(
+				{ error: "Invalid action provided" },
+				{ status: 400 },
+			);
 		}
+		// Execute the action handler
+		handleAction();
 
 		formData.append("output_format", "webp");
 
