@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { ImageViewer } from "@/components/image-viewer";
 import { useToast } from "@/components/ui/use-toast";
+import { DownloadIcon } from "lucide-react";
 
 interface Image {
 	id: string;
@@ -44,29 +45,9 @@ export function ImageGrid() {
 				headers: {
 					"Content-Type": "application/json",
 				},
-				body: JSON.stringify({ id }), // Send ID in the body
+				body: JSON.stringify({ id }),
 			});
 			if (!response.ok) throw new Error("Failed to remove image");
-
-			// Remove image from Cloudinary
-			// try {
-			// 	await fetch(`/api/cloudinary/${id}`, {
-			// 		method: "DELETE",
-			// 	});
-			// 	toast({
-			// 		title: "Success",
-			// 		description: "Image removed from Cloudinary successfully.",
-			// 		variant: "default",
-			// 	});
-			// } catch (error) {
-			// 	console.error("Failed to remove image from Cloudinary:", error);
-			// 	toast({
-			// 		title: "Error",
-			// 		description:
-			// 			"Failed to remove image from Cloudinary. Please try again.",
-			// 		variant: "destructive",
-			// 	});
-			// }
 
 			// Update state to remove the image
 			setImages((prevImages) => prevImages.filter((image) => image.id !== id));
@@ -83,6 +64,15 @@ export function ImageGrid() {
 				variant: "destructive",
 			});
 		}
+	};
+
+	const handleSaveImage = (imageUrl: string) => {
+		const link = document.createElement("a");
+		link.href = imageUrl;
+		link.download = "image.jpg";
+		document.body.appendChild(link);
+		link.click();
+		document.body.removeChild(link);
 	};
 
 	if (isLoading) {
@@ -114,6 +104,14 @@ export function ImageGrid() {
 			{images.map((image) => (
 				<div key={image.id} className="group relative">
 					<ImageViewer src={image.imageUrl} />
+					<button
+						type="button"
+						className="absolute top-2 left-2 z-10 rounded bg-slate-700 hover:bg-opacity-70 text-white px-2 py-1 text-xs"
+						onClick={() => handleSaveImage(image.imageUrl)}
+						aria-label={`Save image ${image.featureType} to device`}
+					>
+						<DownloadIcon />
+					</button>
 					<div className="absolute inset-0 flex items-end justify-end p-2 opacity-0 transition-opacity group-hover:opacity-100">
 						<span className="rounded-full bg-background/90 px-2 py-1 text-xs font-medium">
 							{image.featureType}
